@@ -3,24 +3,26 @@
 require 'em-http-request'
 require 'nokogiri'
 require 'base64'
+require 'yaml'
 
 class PostXpathImage
-  SOURCES = [
-    {
-      url: 'https://queryfeed.net/twitter?q=%E6%9F%B4%E7%8A%AC++filter%3Aimages&title-type=user-name-both&geocode=',
-      xpath: '//item/enclosure/@url',
-      tags: ['post-xpath-image', '柴犬'],
-    },
-  ]
-
   def run
+    sources_path = ARGV[0]
+    posted_image_urls_path = ARGV[1]
+
     EM.run {
+      sources = YAML.load_file(sources_path)
+      posted_image_urls = Marshal.load(open(posted_image_urls_path)) rescue []
+
       puts 'sources_to_candidates'
-      sources_to_candidates(SOURCES) {|candidates|
+      sources_to_candidates(sources, posted_image_urls) {|candidates|
         puts 'fetch_images_for_candidates'
         fetch_images_for_candidates(candidates) {|candidates|
           puts 'post_candidates_to_vimage'
-          post_candidates_to_vimage(candidates) {
+          post_candidates_to_vimage(candidates) {|posted_urls|
+            posted_image_urls.concat(posted_urls).uniq!
+            Marshal.dump(posted_image_urls, open(posted_image_urls_path, 'w')) if posted_image_urls_path
+
             puts 'done'
             EM.stop
           }
@@ -29,20 +31,20 @@ class PostXpathImage
     }
   end
 
-  def sources_to_candidates(sources)
+  def sources_to_candidates(sources, posted_image_urls)
     candidates = []
-    EM::Iterator.new(SOURCES, 2).each(proc{|source, iter|
-      url = source[:url]
+    EM::Iterator.new(sources, 2).each(proc{|source, iter|
+      url = source['url']
       http = EM::HttpRequest.new(url).get
       http.callback {
         xml = Nokogiri::XML.parse(http.response)
         if xml
           xml.remove_namespaces!
-          xml.xpath(source[:xpath]).map{|e| e.text}.each {|extracted|
+          xml.xpath(source['xpath']).map{|e| e.text}.each {|extracted|
             candidates << {
               url: extracted,
-              tags: source[:tags],
-            }
+              tags: source['tags'],
+            } unless posted_image_urls.index(extracted)
           }
         else
           puts "Not found: #{url}"
@@ -82,7 +84,8 @@ class PostXpathImage
   end
 
   def post_candidates_to_vimage(candidates)
-    EM::Iterator.new(candidates, 8).each(proc{|candidate, iter|
+    posted_image_urls = []
+    EM::Iterator.new(candidates, 2).each(proc{|candidate, iter|
       url = "#{ENV['VIMAGE_ROOT']}images/new"
       http = EM::HttpRequest.new(url).post(
         body: {
@@ -93,6 +96,7 @@ class PostXpathImage
         },
       )
       http.callback {
+        posted_image_urls << candidate[:url]
         iter.next
       }
       http.errback {
@@ -100,7 +104,7 @@ class PostXpathImage
         iter.next
       }
     }, proc{
-      yield
+      yield posted_image_urls
     })
   end
 end

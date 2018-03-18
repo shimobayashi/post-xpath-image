@@ -1,0 +1,10 @@
+- url: https://queryfeed.net/twitter?q=%E6%9F%B4%E7%8A%AC++filter%3Aimages&title-type=user-name-both&geocode=
+  xpath: //item/enclosure/@url
+  tags:
+    - post-xpath-image
+    - 柴犬
+- url: https://queryfeed.net/twitter?q=%E7%8C%AB++filter%3Aimages&title-type=user-name-both&geocode=
+  xpath: //item/enclosure/@url
+  tags:
+    - post-xpath-image
+    - 猫
